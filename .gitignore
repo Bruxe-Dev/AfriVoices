@@ -1,0 +1,10 @@
+data/
+*.wav
+*.mp3
+*.checkpoint
+checkpoint-*/
+.env
+.venv
+.vscode/
+__pycache__/
+.ipynb_checkpoints/
