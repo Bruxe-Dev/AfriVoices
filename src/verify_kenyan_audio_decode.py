@@ -1,15 +1,3 @@
-"""
-verify_kenyan_audio_decode.py
-================================
-Confirms whether load_dataset("parquet", ...) auto-decodes the "audio"
-struct column into a ready {"array": ..., "sampling_rate": ...} dict, or
-whether it hands back raw {"bytes": ..., "path": ...} that we'd need to
-decode ourselves via soundfile.
-
-Also confirms whether "transcription" is already present and populated
-per-row, meaning the parquet shard is self-contained (no CSV join needed).
-"""
-
 from datasets import load_dataset, Audio
 
 PARQUET_GLOB = "hf://datasets/MCAA1-MSU/anv_data_ke/kik/train/scripted/audios/train_scripted_000.parquet"
@@ -17,9 +5,6 @@ PARQUET_GLOB = "hf://datasets/MCAA1-MSU/anv_data_ke/kik/train/scripted/audios/tr
 print("Opening streaming connection to one parquet shard...")
 ds = load_dataset("parquet", data_files=PARQUET_GLOB, streaming=True, split="train")
 
-# Disable automatic decoding of the audio column. This avoids requiring the
-# heavy torchcodec dependency - we'll decode the raw WAV bytes ourselves
-# with the much lighter `soundfile` library instead.
 ds = ds.cast_column("audio", Audio(decode=False))
 
 print("Pulling first row...")
