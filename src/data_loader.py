@@ -33,7 +33,6 @@ LANGUAGE_REPO_MAP: Dict[str, Dict[str, str]] = {
     "mas": {"repo_id": "MCAA1-MSU/anv_data_ke", "config": "mas", "split": "train"},
 }
 
-# Ordered by priority: the first matching, non-empty key wins.
 TRANSCRIPT_KEY_CANDIDATES: List[str] = [
     "sentence",
     "transcription",
