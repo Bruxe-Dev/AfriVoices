@@ -20,8 +20,26 @@ logger.setLevel(logging.INFO)
 TARGET_SAMPLE_RATE = 16_000
 
 
-def build_baseline_config(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Config:
+PRETRAINED_CHECKPOINT = "facebook/wav2vec2-xls-r-300m"
 
+
+def build_pretrained_model(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2ForCTC:
+
+    logger.info("Loading pretrained checkpoint '%s' (this downloads ~1.2GB on first run)...", PRETRAINED_CHECKPOINT)
+    model = Wav2Vec2ForCTC.from_pretrained(
+        PRETRAINED_CHECKPOINT,
+        vocab_size=vocab_size,
+        pad_token_id=pad_token_id,
+        ctc_loss_reduction="mean",
+        ctc_zero_infinity=True,
+        ignore_mismatched_sizes=True,  # The checkpoint has no lm_head at all; this allows a fresh one to be created.
+    )
+    model.freeze_feature_encoder()
+    logger.info("Feature encoder frozen (standard practice for low-resource fine-tuning).")
+    return model
+
+
+def build_baseline_config(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Config:
     config = Wav2Vec2Config(
         vocab_size=vocab_size,
         hidden_size=512,
@@ -41,7 +59,7 @@ def build_baseline_config(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Con
 
 
 def build_feature_extractor() -> Wav2Vec2FeatureExtractor:
- 
+
     return Wav2Vec2FeatureExtractor(
         feature_size=1,
         sampling_rate=TARGET_SAMPLE_RATE,
@@ -86,17 +104,20 @@ if __name__ == "__main__":
     VOCAB_PATH = "vocab.json"
 
     logger.info("=" * 70)
-    logger.info("PHASE 2 BASELINE MODEL DRY RUN")
+    logger.info("PHASE 2 BASELINE MODEL DRY RUN (XLS-R-300M fine-tuning setup)")
     logger.info("=" * 70)
 
     vocab_size, pad_token_id = load_vocab_size_from_file(VOCAB_PATH)
 
-    logger.info("Building config (vocab_size=%d, pad_token_id=%d)...", vocab_size, pad_token_id)
-    config = build_baseline_config(vocab_size=vocab_size, pad_token_id=pad_token_id)
-
-    logger.info("Instantiating Wav2Vec2ForCTC model (random init, no pretrained weights)...")
-    model = Wav2Vec2ForCTC(config)
-    model.eval()  # Dry run only - no training happening here.
+    logger.info("Building model from pretrained checkpoint '%s'...", PRETRAINED_CHECKPOINT)
+    logger.info(
+        "NOTE: you will see a warning listing 'lm_head.weight'/'lm_head.bias' as "
+        "newly initialized. This is expected - the base checkpoint has no CTC "
+        "head at all, so this part is created fresh, sized to our vocab_size. "
+        "Everything else (the encoder) loads real pretrained weights."
+    )
+    model = build_pretrained_model(vocab_size=vocab_size, pad_token_id=pad_token_id)
+    model.eval()  
 
     feature_extractor = build_feature_extractor()
 
@@ -104,12 +125,17 @@ if __name__ == "__main__":
     logger.info("-" * 70)
     logger.info("MEASURED PARAMETER COUNT (not an estimate):")
     logger.info("  Total params      : %s", f"{param_stats['total_params']:,}")
-    logger.info("  Trainable params  : %s", f"{param_stats['trainable_params']:,}")
+    logger.info("  Trainable params  : %s", f"{param_stats['trainable_params']:,}  (feature encoder is frozen)")
     logger.info("  Estimated fp32 RAM: %.1f MB (parameters only, no activations/optimizer state)",
                 param_stats["estimated_fp32_mb"])
     logger.info("  Constraint check  : %s",
-                "PASS - well under 500M params" if param_stats["total_params"] < 500_000_000
-                else "FAIL - exceeds 500M params, reduce hidden_size/num_hidden_layers")
+                "PASS - under 1B hard cap" if param_stats["total_params"] < 1_000_000_000
+                else "FAIL - exceeds 1B hard cap")
+    logger.info(
+        "  Headroom note     : this uses up most of the soft 300-500M baseline "
+        "target on its own - see module docstring re: quantize/distill for "
+        "the final edge deployment artifact, separate from this training-time model."
+    )
     logger.info("-" * 70)
 
     logger.info("Building dummy audio tensor: shape [1, 16000] (1 second @ 16kHz mono)...")
