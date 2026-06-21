@@ -131,14 +131,7 @@ class CharacterTokenizer:
         return instance
 
     def audit_report(self) -> str:
-        """
-        Produce a human-readable summary for the Linguistic Lead to verify
-        that critical characters got dedicated token IDs, without needing
-        to read raw JSON.
 
-        Returns:
-            Multi-line string report.
-        """
         critical_chars = ["ĩ", "ũ", "'"]
         lines = [f"Vocabulary audit report ({self.vocab_size} total tokens)", "=" * 50]
         lines.append(f"Special tokens: {SPECIAL_TOKENS}")
