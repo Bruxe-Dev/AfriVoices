@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import logging
 from typing import Any, Dict, Iterator, List
@@ -32,7 +33,6 @@ LANGUAGE_PRESERVE_CHARS: Dict[str, str] = {
 
 
 def list_shard_files(lang: str, split: str, data_type: str) -> List[str]:
-
     if lang not in VALID_LANGS:
         raise ValueError(f"Unknown lang '{lang}'. Expected one of {VALID_LANGS}.")
     if split not in VALID_SPLITS:
@@ -56,7 +56,17 @@ def list_shard_files(lang: str, split: str, data_type: str) -> List[str]:
 
 def decode_wav_bytes(wav_bytes: bytes) -> tuple[np.ndarray, int]:
 
-    data, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+    try:
+        data, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+    except Exception as original_error:
+        # Fallback: maybe this row hit the base64-as-text export bug.
+        try:
+            decoded_bytes = base64.b64decode(wav_bytes, validate=False)
+            data, sample_rate = sf.read(io.BytesIO(decoded_bytes), dtype="float32")
+            logger.info("Recovered a base64-encoded-as-text row via fallback decode.")
+        except Exception:
+            raise original_error
+
     if data.ndim > 1:
         data = data.mean(axis=1)  # Collapse multi-channel to mono.
     return data.astype(np.float32), sample_rate
@@ -138,7 +148,7 @@ if __name__ == "__main__":
                 logger.info("  Domain     : %s", sample["domain"])
                 if count >= SAMPLES_PER_LANGUAGE:
                     break
-        except Exception as exc:  
+        except Exception as exc:  # noqa: BLE001 - diagnostic guard
             logger.error("[%s] Failed: %s", lang, exc)
 
         if count == 0:
