@@ -25,6 +25,11 @@ VALID_LANGS = ("kik", "kln", "luo", "mas", "som")
 VALID_SPLITS = ("train", "dev", "dev_test")
 VALID_TYPES = ("scripted", "unscripted")
 
+LANGUAGE_PRESERVE_CHARS: Dict[str, str] = {
+    "kln": "'",
+    "luo": "'",
+}
+
 
 def list_shard_files(lang: str, split: str, data_type: str) -> List[str]:
 
@@ -101,7 +106,7 @@ def iter_language_samples(
         yield {
             "lang_code": lang,
             "raw_text": raw_text,
-            "clean_text": clean_text(raw_text),
+            "clean_text": clean_text(raw_text, preserve_chars=LANGUAGE_PRESERVE_CHARS.get(lang, "")),
             "audio_array": audio_array,
             "target_sample_rate": target_sr,
             "data_type": row.get("type"),
