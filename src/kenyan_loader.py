@@ -138,7 +138,7 @@ if __name__ == "__main__":
                 logger.info("  Domain     : %s", sample["domain"])
                 if count >= SAMPLES_PER_LANGUAGE:
                     break
-        except Exception as exc:  # noqa: BLE001 - diagnostic guard
+        except Exception as exc:  
             logger.error("[%s] Failed: %s", lang, exc)
 
         if count == 0:
