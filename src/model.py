@@ -11,9 +11,6 @@ import psutil
 import torch
 from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
-# --------------------------------------------------------------------------- #
-# Logging setup
-# --------------------------------------------------------------------------- #
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -46,7 +43,6 @@ def build_pretrained_model(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Fo
 
 
 def build_baseline_config(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Config:
-
     config = Wav2Vec2Config(
         vocab_size=vocab_size,
         hidden_size=512,
@@ -186,6 +182,26 @@ if __name__ == "__main__":
     avg_time = sum(run_times) / len(run_times)
     real_time_factor = avg_time / AUDIO_DURATION_SECONDS
 
+    original_num_threads = torch.get_num_threads()
+    logger.info(
+        "This machine used %d CPU thread(s) for the timing above. "
+        "Re-running with 1 thread as a rough Pi 4-core proxy...",
+        original_num_threads,
+    )
+    torch.set_num_threads(1)
+    with torch.no_grad():
+        model(input_values=inputs["input_values"], attention_mask=inputs["attention_mask"])  # warm-up
+    single_thread_times = []
+    for i in range(NUM_TIMING_RUNS):
+        start = time.perf_counter()
+        with torch.no_grad():
+            model(input_values=inputs["input_values"], attention_mask=inputs["attention_mask"])
+        single_thread_times.append(time.perf_counter() - start)
+    torch.set_num_threads(original_num_threads)  # Restore, don't leave global state mutated.
+
+    single_thread_avg = sum(single_thread_times) / len(single_thread_times)
+    single_thread_rtf = single_thread_avg / AUDIO_DURATION_SECONDS
+
     rss_after_inference = get_process_rss_mb()
 
     logger.info("  outputs.logits.shape = %s", tuple(outputs.logits.shape))
@@ -200,14 +216,30 @@ if __name__ == "__main__":
     )
     logger.info("-" * 70)
     logger.info("MEASURED CPU LATENCY (real wall-clock time, not an estimate):")
-    logger.info("  Audio duration       : %.1f sec", AUDIO_DURATION_SECONDS)
-    logger.info("  Avg forward pass time: %.3f sec (over %d runs)", avg_time, NUM_TIMING_RUNS)
-    logger.info("  Real-time factor     : %.2fx", real_time_factor)
+    logger.info("  Audio duration            : %.1f sec", AUDIO_DURATION_SECONDS)
+    logger.info("  [Multi-thread, %d threads] Avg time: %.3f sec, RTF: %.2fx",
+                original_num_threads, avg_time, real_time_factor)
     logger.info(
-        "  Constraint check     : %s (limit: <= %.1fx)",
+        "    Constraint check (this machine): %s (limit: <= %.1fx)",
         f"PASS - {real_time_factor:.2f}x" if real_time_factor <= REAL_TIME_FACTOR_LIMIT
         else f"FAIL - {real_time_factor:.2f}x exceeds limit",
         REAL_TIME_FACTOR_LIMIT,
+    )
+    logger.info("  [Single-thread, Pi4-core proxy] Avg time: %.3f sec, RTF: %.2fx",
+                single_thread_avg, single_thread_rtf)
+    logger.info(
+        "    Constraint check (rough Pi4 proxy): %s (limit: <= %.1fx)",
+        f"PASS - {single_thread_rtf:.2f}x" if single_thread_rtf <= REAL_TIME_FACTOR_LIMIT
+        else f"FAIL - {single_thread_rtf:.2f}x exceeds limit",
+        REAL_TIME_FACTOR_LIMIT,
+    )
+    logger.info(
+        "  IMPORTANT: the single-thread number is a rough proxy, not a real "
+        "Pi 4 benchmark. The Pi 4 has 4 such weak cores (some parallelism "
+        "is possible) but each core is also slower in absolute clock-for-clock "
+        "terms than this development machine's cores. Treat any FAIL here as "
+        "a serious warning sign; treat a PASS as encouraging but NOT confirmed "
+        "until Teammate 3 actually benchmarks on real Pi 4 hardware."
     )
     logger.info("-" * 70)
     logger.info("MEASURED PEAK RAM (real RSS during this dry run, single 1-second clip, batch_size=1):")
