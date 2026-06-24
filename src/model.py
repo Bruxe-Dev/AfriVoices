@@ -11,6 +11,9 @@ import psutil
 import torch
 from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
+# --------------------------------------------------------------------------- #
+# Logging setup
+# --------------------------------------------------------------------------- #
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -27,6 +30,7 @@ PRETRAINED_CHECKPOINT = "facebook/wav2vec2-xls-r-300m"
 
 
 def build_pretrained_model(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2ForCTC:
+
     logger.info("Loading pretrained checkpoint '%s' (this downloads ~1.2GB on first run)...", PRETRAINED_CHECKPOINT)
     model = Wav2Vec2ForCTC.from_pretrained(
         PRETRAINED_CHECKPOINT,
@@ -92,7 +96,6 @@ def load_vocab_size_from_file(vocab_path: str, fallback: int = 128) -> tuple[int
 
 
 def get_process_rss_mb() -> float:
-
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / (1024 ** 2)
 
@@ -114,7 +117,7 @@ if __name__ == "__main__":
     NUM_TIMING_RUNS = 5  # Average over several runs - a single forward pass can be noisy.
 
     logger.info("=" * 70)
-    logger.info("PHASE 2 BASELINE MODEL DRY RUN (XLS-R-300M fine-tuning setup)")
+    logger.info("PHASE 2 BASELINE MODEL DRY RUN (from-scratch baseline - current default)")
     logger.info("=" * 70)
 
     rss_before_load = get_process_rss_mb()
@@ -122,14 +125,12 @@ if __name__ == "__main__":
 
     vocab_size, pad_token_id = load_vocab_size_from_file(VOCAB_PATH)
 
-    logger.info("Building model from pretrained checkpoint '%s'...", PRETRAINED_CHECKPOINT)
     logger.info(
-        "NOTE: you will see a warning listing 'lm_head.weight'/'lm_head.bias' as "
-        "newly initialized. This is expected - the base checkpoint has no CTC "
-        "head at all, so this part is created fresh, sized to our vocab_size. "
-        "Everything else (the encoder) loads real pretrained weights."
+        "Building from-scratch baseline config (hidden_size=512, 8 layers, 8 heads) "
+        "- chosen after XLS-R-300M measured too thin a latency margin on a Pi4 proxy."
     )
-    model = build_pretrained_model(vocab_size=vocab_size, pad_token_id=pad_token_id)
+    config = build_baseline_config(vocab_size=vocab_size, pad_token_id=pad_token_id)
+    model = Wav2Vec2ForCTC(config)
     model.eval()  # Dry run only - no training happening here.
 
     feature_extractor = build_feature_extractor()
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     logger.info("-" * 70)
     logger.info("MEASURED PARAMETER COUNT (not an estimate):")
     logger.info("  Total params      : %s", f"{param_stats['total_params']:,}")
-    logger.info("  Trainable params  : %s", f"{param_stats['trainable_params']:,}  (feature encoder is frozen)")
+    logger.info("  Trainable params  : %s  (no frozen layers - training from scratch)", f"{param_stats['trainable_params']:,}")
     logger.info("  Constraint check  : %s",
                 "PASS - under 1B hard cap" if param_stats["total_params"] < 1_000_000_000
                 else "FAIL - exceeds 1B hard cap")
