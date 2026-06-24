@@ -11,9 +11,6 @@ import psutil
 import torch
 from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
-# --------------------------------------------------------------------------- #
-# Logging setup
-# --------------------------------------------------------------------------- #
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
