@@ -7,19 +7,33 @@ from typing import Any, Dict, Iterator, List, Optional
 from torch.utils.data import Dataset
 from transformers import Trainer, Wav2Vec2ForCTC
 
-import kenyan_loader
-import swahili_loader
-from collector import DataCollatorCTCWithPadding
-from metrics import compute_metrics_fn
-from model import build_baseline_config, build_feature_extractor, build_pretrained_model
-from tokenizer import CharacterTokenizer
-from train_config import build_training_arguments
-from utils import (
-    DEFAULT_MAX_CLIP_SECONDS,
-    MemoryMonitorCallback,
-    get_logger,
-    set_global_seed,
-)
+try:
+    from . import kenyan_loader, swahili_loader
+    from .collector import DataCollatorCTCWithPadding
+    from .metrics import compute_metrics_fn, compute_unweighted_multilingual_wer
+    from .model import build_baseline_config, build_feature_extractor, build_pretrained_model
+    from .tokenizer import CharacterTokenizer
+    from .train_config import build_training_arguments
+    from .utils import (
+        DEFAULT_MAX_CLIP_SECONDS,
+        MemoryMonitorCallback,
+        get_logger,
+        set_global_seed,
+    )
+except ImportError:  # pragma: no cover - allows running the script directly from src/
+    import kenyan_loader
+    import swahili_loader
+    from collector import DataCollatorCTCWithPadding
+    from metrics import compute_metrics_fn, compute_unweighted_multilingual_wer
+    from model import build_baseline_config, build_feature_extractor, build_pretrained_model
+    from tokenizer import CharacterTokenizer
+    from train_config import build_training_arguments
+    from utils import (
+        DEFAULT_MAX_CLIP_SECONDS,
+        MemoryMonitorCallback,
+        get_logger,
+        set_global_seed,
+    )
 
 logger = get_logger(__name__)
 
@@ -106,9 +120,15 @@ def collect_samples(
 # --------------------------------------------------------------------------- #
 
 class MultilingualASRDataset(Dataset):
-    def __init__(self, samples: List[Dict[str, Any]], tokenizer: CharacterTokenizer):
+    def __init__(
+        self,
+        samples: List[Dict[str, Any]],
+        tokenizer: CharacterTokenizer,
+        feature_extractor: Any,
+    ):
         self.samples = samples
         self.tokenizer = tokenizer
+        self.feature_extractor = feature_extractor
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -120,8 +140,13 @@ class MultilingualASRDataset(Dataset):
             lang_code=sample.get("lang_code"),
             add_bos_eos=True,
         )
+        input_values = self.feature_extractor(
+            sample["audio_array"],
+            sampling_rate=sample.get("target_sample_rate", 16000),
+            return_tensors="np",
+        )["input_values"][0]
         return {
-            "input_values": sample["audio_array"],
+            "input_values": input_values,
             "labels": labels,
         }
 
@@ -190,6 +215,8 @@ def main() -> None:
     tokenizer = CharacterTokenizer.load(str(vocab_path))
     logger.info("Loaded tokenizer: vocab_size=%d, pad_id=%d", tokenizer.vocab_size, tokenizer.pad_id)
 
+    feature_extractor = build_feature_extractor()
+
     logger.info("Collecting training samples (streams from the HF Hub - this can take a while)...")
     train_samples = collect_samples(
         args.languages, split="train",
@@ -203,11 +230,10 @@ def main() -> None:
         max_clip_seconds=args.max_clip_seconds,
     )
 
-    train_dataset = MultilingualASRDataset(train_samples, tokenizer)
-    eval_dataset = MultilingualASRDataset(eval_samples, tokenizer)
+    train_dataset = MultilingualASRDataset(train_samples, tokenizer, feature_extractor)
+    eval_dataset = MultilingualASRDataset(eval_samples, tokenizer, feature_extractor)
     logger.info("train_dataset size=%d, eval_dataset size=%d", len(train_dataset), len(eval_dataset))
 
-    feature_extractor = build_feature_extractor()
     collator = DataCollatorCTCWithPadding(feature_extractor=feature_extractor)
 
     model = build_model(args.model_type, vocab_size=tokenizer.vocab_size, pad_token_id=tokenizer.pad_id)
@@ -241,7 +267,28 @@ def main() -> None:
 
     logger.info("Training complete. Running final evaluation on the dev split...")
     final_metrics = trainer.evaluate()
-    logger.info("Final eval metrics: %s", final_metrics)
+    logger.info("Final pooled eval metrics: %s", final_metrics)
+
+    per_language_wer: Dict[str, float] = {}
+    for lang in args.languages:
+        language_samples = [sample for sample in eval_samples if sample.get("lang_code") == lang]
+        if not language_samples:
+            logger.warning("No eval samples found for language '%s'; skipping per-language WER summary.", lang)
+            continue
+        language_dataset = MultilingualASRDataset(language_samples, tokenizer, feature_extractor)
+        language_metrics = trainer.evaluate(
+            eval_dataset=language_dataset,
+            metric_key_prefix=f"eval_{lang}",
+        )
+        lang_wer = language_metrics.get(f"eval_{lang}_wer")
+        if lang_wer is None:
+            logger.warning("No WER metric returned for language '%s': %s", lang, language_metrics)
+            continue
+        per_language_wer[lang] = float(lang_wer)
+
+    if per_language_wer:
+        overall_wer = compute_unweighted_multilingual_wer(per_language_wer)
+        logger.info("Final multilingual score (unweighted mean WER): %.4f", overall_wer)
 
     best_dir = Path(args.output_dir) / "best_model"
     trainer.save_model(str(best_dir))
