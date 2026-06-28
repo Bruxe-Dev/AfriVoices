@@ -19,17 +19,15 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-LABEL_PAD_VALUE = -100  
+LABEL_PAD_VALUE = -100  # CTC loss ignore-index sentinel - see module docstring.
 
 
 @dataclass
 class DataCollatorCTCWithPadding:
-
     feature_extractor: Wav2Vec2FeatureExtractor
     padding: Union[bool, str] = True
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-
         for i, f in enumerate(features):
             if "input_values" not in f or "labels" not in f:
                 raise KeyError(
@@ -37,6 +35,7 @@ class DataCollatorCTCWithPadding:
                     f"Got keys: {list(f.keys())}"
                 )
 
+        # --- Audio: delegate to the feature extractor's own padding --- #
         input_features = [{"input_values": f["input_values"]} for f in features]
         batch = self.feature_extractor.pad(
             input_features,
@@ -44,6 +43,7 @@ class DataCollatorCTCWithPadding:
             return_tensors="pt",
         )
 
+        # --- Labels: hand-rolled padding with the CTC ignore sentinel --- #
         label_sequences = [f["labels"] for f in features]
         max_label_length = max(len(seq) for seq in label_sequences)
 
@@ -60,7 +60,6 @@ class DataCollatorCTCWithPadding:
 
 
 if __name__ == "__main__":
-
     import sys
     sys.path.insert(0, ".")
     from model import build_feature_extractor
