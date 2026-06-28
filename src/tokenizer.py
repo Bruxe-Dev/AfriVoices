@@ -5,6 +5,9 @@ import logging
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+# --------------------------------------------------------------------------- #
+# Logging setup
+# --------------------------------------------------------------------------- #
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -14,6 +17,9 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
+# --------------------------------------------------------------------------- #
+# Reserved tokens
+# --------------------------------------------------------------------------- #
 PAD_TOKEN = "<pad>"
 BOS_TOKEN = "<s>"
 EOS_TOKEN = "</s>"
@@ -45,7 +51,6 @@ def build_vocab_from_texts(texts: Iterable[str]) -> List[str]:
 
 
 class CharacterTokenizer:
-
     def __init__(self, char_vocab: List[str]):
 
         all_tokens = list(SPECIAL_TOKENS) + list(LANGUAGE_TAGS.values()) + list(char_vocab)
@@ -67,11 +72,10 @@ class CharacterTokenizer:
 
     @property
     def vocab_size(self) -> int:
-        """Total number of tokens, including special tokens and language tags."""
+        
         return len(self.id_to_token)
 
     def lang_tag_id(self, lang_code: str) -> int:
-
         tag = LANGUAGE_TAGS[lang_code]
         return self.token_to_id[tag]
 
@@ -105,7 +109,6 @@ class CharacterTokenizer:
         return "".join(chars)
 
     def save(self, path: str) -> None:
-
         payload = {
             "token_to_id": self.token_to_id,
             "special_tokens": SPECIAL_TOKENS,
@@ -117,7 +120,6 @@ class CharacterTokenizer:
 
     @classmethod
     def load(cls, path: str) -> "CharacterTokenizer":
-
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         token_to_id = payload["token_to_id"]
 
@@ -131,7 +133,6 @@ class CharacterTokenizer:
         return instance
 
     def audit_report(self) -> str:
-
         critical_chars = ["ĩ", "ũ", "'"]
         lines = [f"Vocabulary audit report ({self.vocab_size} total tokens)", "=" * 50]
         lines.append(f"Special tokens: {SPECIAL_TOKENS}")
@@ -147,7 +148,6 @@ class CharacterTokenizer:
 
 
 if __name__ == "__main__":
-
     SAMPLES_PER_LANGUAGE = 200
 
     import kenyan_loader
@@ -184,6 +184,7 @@ if __name__ == "__main__":
 
     tokenizer.save("vocab.json")
 
+    # Quick round-trip sanity check.
     test_text = "nĩ ũndũ mwega ng'ung'unyek"
     encoded = tokenizer.encode(test_text, lang_code="kik")
     decoded = tokenizer.decode(encoded)

@@ -11,6 +11,9 @@ import psutil
 import torch
 from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
+# --------------------------------------------------------------------------- #
+# Logging setup
+# --------------------------------------------------------------------------- #
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -44,12 +47,14 @@ def build_pretrained_model(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Fo
 
 
 def build_baseline_config(vocab_size: int, pad_token_id: int = 0) -> Wav2Vec2Config:
+
     config = Wav2Vec2Config(
         vocab_size=vocab_size,
         hidden_size=512,
         num_hidden_layers=8,
         num_attention_heads=8,
         intermediate_size=2048,
+
         conv_dim=(512, 512, 512, 512, 512, 512, 512),
         conv_stride=(5, 2, 2, 2, 2, 2, 2),
         conv_kernel=(10, 3, 3, 3, 3, 2, 2),
@@ -93,11 +98,13 @@ def load_vocab_size_from_file(vocab_path: str, fallback: int = 128) -> tuple[int
 
 
 def get_process_rss_mb() -> float:
+
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / (1024 ** 2)
 
 
 def count_parameters(model: torch.nn.Module) -> dict:
+
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     estimated_mb = total * 4 / (1024 ** 2)  # 4 bytes per fp32 parameter
