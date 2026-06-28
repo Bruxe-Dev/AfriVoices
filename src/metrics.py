@@ -8,7 +8,6 @@ import numpy as np
 
 from tokenizer import CharacterTokenizer
 
-
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -22,6 +21,7 @@ LABEL_PAD_VALUE = -100  # Must match collator.py's LABEL_PAD_VALUE.
 
 
 def ctc_collapse(token_ids: List[int], blank_id: int) -> List[int]:
+
     collapsed = []
     previous_id = None
     for token_id in token_ids:
@@ -48,7 +48,6 @@ def decode_labels(
     label_ids: np.ndarray,
     tokenizer: CharacterTokenizer,
 ) -> List[str]:
-
     decoded_texts = []
     for sample_ids in label_ids:
         cleaned_ids = [tid if tid != LABEL_PAD_VALUE else tokenizer.pad_id for tid in sample_ids.tolist()]
@@ -80,7 +79,6 @@ def compute_metrics_fn(tokenizer: CharacterTokenizer):
 
 
 def compute_unweighted_multilingual_wer(per_language_wer: Dict[str, float]) -> float:
-
     if not per_language_wer:
         raise ValueError("per_language_wer is empty - nothing to average.")
     values = list(per_language_wer.values())
